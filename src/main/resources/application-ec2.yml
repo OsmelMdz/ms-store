@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: ms-store
+  
+  datasource:
+    url: jdbc:postgresql://172.31.24.34:5432/sda_metadata
+    username: sda_user
+    password: dbPassword123
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        default_schema: operational
+  
+  cloud:
+    vault:
+      uri: http://3.145.143.151:8200
+      token: hvs.6YKrIDrOpEPASDPjSpLB6amc
+      kv:
+        enabled: true
+        backend: secret
+      transit:
+        enabled: true
+  
+  threads:
+    virtual:
+      enabled: true
+  
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
+
+minio:
+  endpoint: http://18.218.3.253:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket: expedientes-top-secret
+  part-size: 5242880
+
+server:
+  port: 8080
+ 
