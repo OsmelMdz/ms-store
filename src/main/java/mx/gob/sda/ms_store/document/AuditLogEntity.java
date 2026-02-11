@@ -12,11 +12,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "audit_logs", schema = "operational")
-@Getter 
-@Setter 
-@Builder 
-@NoArgsConstructor 
-@AllArgsConstructor
+@Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
 @EntityListeners(AuditingEntityListener.class)
 public class AuditLogEntity {
 
@@ -52,6 +48,6 @@ public class AuditLogEntity {
     private String clientIp;
 
     @CreatedDate
-    @Column(name = "fecha_hora", updatable = false)
+    @Column(name = "fecha_hora", updatable = false, columnDefinition = "TIMESTAMP WITH TIME ZONE")
     private OffsetDateTime fechaHora;
 }
