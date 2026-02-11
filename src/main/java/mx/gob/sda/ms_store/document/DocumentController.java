@@ -56,13 +56,21 @@ public class DocumentController {
         return documentService.processUpload(file, tenantId, departmentId, userId, clientIp)
                 .<ResponseEntity<?>>thenApply(result -> ResponseEntity.status(HttpStatus.CREATED).body(result))
                 .exceptionally(e -> {
-                    log.error("Fallo crítico en el hilo de ejecución: {}", e.getMessage());
-                    if (e.getCause() instanceof SecurityException || e.getMessage().contains("SecurityException")) {
+                    Throwable cause = (e.getCause() != null) ? e.getCause() : e;
+                    log.error("Fallo crítico en el proceso: {}", cause.getMessage());
+
+                    if (cause instanceof SecurityException) {
                         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                                .body(Map.of("error", "Acceso denegado: El departamento no pertenece al Tenant o no tiene permisos."));
+                                .body(Map.of("error", "Acceso denegado: El departamento no pertenece al organismo."));
                     }
+
+                    if (cause.getMessage().contains("Vault") || cause.getClass().getName().toLowerCase().contains("vault")) {
+                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                .body(Map.of("error", "Servicio de seguridad no disponible momentáneamente."));
+                    }
+
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                            .body(Map.of("error", "Error interno al procesar el archivo"));
+                                .body(Map.of("error", "Error interno al procesar el archivo"));
                 });
     }
 

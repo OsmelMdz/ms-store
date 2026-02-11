@@ -45,5 +45,13 @@ minio:
   part-size: 5242880
 
 server:
-  port: 8080
- 
+  port: 8443
+  ssl:
+    enabled: true
+    key-store: classpath:certs/keystore.p12
+    key-store-password: dbPassword123
+    key-store-type: PKCS12
+    key-alias: ms-store
+    trust-store: classpath:certs/truststore.p12
+    trust-store-password: dbPassword123
+    client-auth: need    

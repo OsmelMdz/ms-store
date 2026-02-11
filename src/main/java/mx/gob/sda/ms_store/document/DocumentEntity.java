@@ -14,10 +14,10 @@ import org.hibernate.type.SqlTypes;
 @NoArgsConstructor 
 @AllArgsConstructor 
 @Builder
+@EntityListeners({AuditingEntityListener.class, DocumentAuditListener.class})
 public class DocumentEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "document_id", updatable = false, nullable = false)
     private UUID documentId;
 
@@ -41,18 +41,6 @@ public class DocumentEntity {
 
     @Column(name = "content_type", length = 50)
     private String contentType;
-    
-    @Column(name = "dek_wrapped_value", columnDefinition = "TEXT")
-    private String dekWrappedValue;
-
-    @Column(name = "encrypted_dek", columnDefinition = "TEXT")
-    private String encryptedDek;
-
-    @Column(name = "kek_version_id", length = 50)
-    private String kekVersionId;
-
-    @Column(name = "initialization_vector", columnDefinition = "TEXT")
-    private String initializationVector;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata")

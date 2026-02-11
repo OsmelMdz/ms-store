@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.vault.core.VaultTemplate;
+import org.springframework.vault.support.VaultResponse;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
@@ -31,7 +32,8 @@ public class DocumentService {
     private final MinioClient minioClient;
     private final VaultTemplate vaultTemplate;
     private final DocumentRepository repository;
-    
+    private static final String VAULT_KV_PATH = "secret/data/documents/%s/%s";
+
     @Value("${minio.bucket}")
     private String bucket;
 
@@ -55,6 +57,7 @@ public class DocumentService {
             byte[] fileBytes = file.getBytes();
             String fileHash = bytesToHex(MessageDigest.getInstance("SHA-256").digest(fileBytes));
             String objectKey = fileHash + ".enc";
+            
             byte[] dek = new byte[32];
             byte[] iv = new byte[16];
             new SecureRandom().nextBytes(dek);
@@ -62,7 +65,19 @@ public class DocumentService {
             
             String ciphertextDEK = vaultTemplate.opsForTransit()
                 .encrypt("sda-master-key", Base64.getEncoder().encodeToString(dek));
+
+            UUID documentId = UUID.randomUUID();
+            String vaultPath = String.format(VAULT_KV_PATH, tenantId, documentId.toString());
+            
+            Map<String, String> secretData = new HashMap<>();
+            secretData.put("dek", ciphertextDEK);
+            secretData.put("iv", Base64.getEncoder().encodeToString(iv));
+            
+            vaultTemplate.write(vaultPath, Collections.singletonMap("data", secretData));
+            log.info("Llaves de cifrado almacenadas en Vault KV: {}", vaultPath);
+
             DocumentEntity doc = DocumentEntity.builder()
+                .documentId(documentId)
                 .tenantId(tenantUuid)
                 .departmentId(deptUuid)
                 .fileHash(fileHash)
@@ -70,14 +85,12 @@ public class DocumentService {
                 .s3ObjectKey(objectKey)
                 .status("PENDING_STORAGE")
                 .contentType(file.getContentType())
-                .dekWrappedValue(ciphertextDEK)
-                .initializationVector(Base64.getEncoder().encodeToString(iv))
                 .createdBy(userId)
                 .clientIp(clientIp)
                 .build();
 
             doc = repository.save(doc);
-            log.info("Registro creado en DB (ID: {}). Iniciando subida a MinIO...", doc.getDocumentId());
+            log.info("Metadatos de negocio guardados en DB. ID: {}", doc.getDocumentId());
 
             Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(dek, "AES"), new IvParameterSpec(iv));
@@ -94,8 +107,7 @@ public class DocumentService {
 
             doc.setStatus("RECEIVED");
             repository.save(doc);
-            log.info("Proceso completado exitosamente para el Hash: {}", fileHash);
-
+            
             Map<String, Object> response = new HashMap<>();
             response.put("document_id", doc.getDocumentId());
             response.put("file_hash", fileHash);
@@ -104,7 +116,7 @@ public class DocumentService {
             return CompletableFuture.completedFuture(response);
 
         } catch (Exception e) {
-            log.error("Error en processUpload: {}", e.getMessage());
+            log.error("Fallo en el proceso de carga: {}", e.getMessage());
             return CompletableFuture.failedFuture(e);
         }
     }
@@ -116,11 +128,24 @@ public class DocumentService {
         DocumentEntity doc = repository.findByFileHash(fileHash)
            .orElseThrow(() -> new NoSuchElementException("Documento no encontrado o sin permisos."));
 
+        log.debug("Recuperando llaves desde Vault KV para el documento: {}", doc.getDocumentId());
+        String vaultPath = String.format(VAULT_KV_PATH, tenantId, doc.getDocumentId().toString());
+        VaultResponse response = vaultTemplate.read(vaultPath);
+        
+        if (response == null || response.getData() == null) {
+            throw new NoSuchElementException("Error de integridad: Llaves no encontradas en Vault para este documento.");
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> dataMap = (Map<String, Object>) response.getData().get("data");
+        String encryptedDek = (String) dataMap.get("dek");
+        String ivBase64 = (String) dataMap.get("iv");
+
         String plaintextDEK = vaultTemplate.opsForTransit()
-            .decrypt("sda-master-key", doc.getDekWrappedValue());
+            .decrypt("sda-master-key", encryptedDek);
     
         final byte[] dek = Base64.getDecoder().decode(plaintextDEK);
-        final byte[] iv = Base64.getDecoder().decode(doc.getInitializationVector());
+        final byte[] iv = Base64.getDecoder().decode(ivBase64);
 
         return outputStream -> {
             try (InputStream encryptedStream = minioClient.getObject(
@@ -134,8 +159,8 @@ public class DocumentService {
                     outputStream.flush();
                 }
             } catch (Exception e) {
-                log.error("Error crítico durante el flujo de descarga: {}", e.getMessage());
-                throw new RuntimeException("Error al procesar el archivo para descarga", e);
+                log.error("Error en el flujo de descarga MinIO/Cipher: {}", e.getMessage());
+                throw new RuntimeException("No se pudo procesar la descarga del archivo", e);
             }
         };
     }
