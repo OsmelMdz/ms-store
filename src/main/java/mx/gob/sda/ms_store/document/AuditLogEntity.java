@@ -12,18 +12,23 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "audit_logs", schema = "operational")
-@Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
+@Getter 
+@Setter 
+@Builder 
+@NoArgsConstructor 
+@AllArgsConstructor
 @EntityListeners(AuditingEntityListener.class)
 public class AuditLogEntity {
 
     @Id
-    @Column(name = "audit_id")
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "audit_id", updatable = false, nullable = false)
     private UUID auditId;
 
-    @Column(name = "table_name")
+    @Column(name = "table_name", nullable = false)
     private String tableName;
 
-    @Column(name = "operation")
+    @Column(name = "operation", nullable = false)
     private String operation;
 
     @Column(name = "row_id")
@@ -41,6 +46,7 @@ public class AuditLogEntity {
     @Column(name = "changed_by_user")
     private String changedByUser;
 
+    @JdbcTypeCode(SqlTypes.OTHER)
     @Column(name = "client_ip")
     @org.hibernate.annotations.ColumnTransformer(write = "?::inet")
     private String clientIp;
