@@ -3,36 +3,35 @@ package mx.gob.sda.ms_store.document;
 import jakarta.persistence.PostPersist;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import java.util.UUID;
 
 @Slf4j
 @Component
 public class DocumentAuditListener {
 
     @Autowired
-    @Lazy
-    private AuditLogRepository auditRepository;
+    private JdbcTemplate jdbcTemplate;
 
     @PostPersist
     public void onPostPersist(DocumentEntity document) {
         try {
-            AuditLogEntity logEntity = AuditLogEntity.builder()
-                    .tableName("documents")
-                    .operation("INSERT")
-                    .rowId(document.getDocumentId().toString())
-                    .clientIp(document.getClientIp())
-                    .newData(String.format(
-                        "{\"status\": \"%s\", \"file_hash\": \"%s\", \"tenant_id\": \"%s\"}", 
-                        document.getStatus(), 
-                        document.getFileHash(),
-                        document.getTenantId()
-                    ))
-                    .build();
+            String sql = "INSERT INTO operational.audit_logs (audit_id, table_name, operation, row_id, new_data, client_ip, changed_by_user, fecha_hora) " +
+                         "VALUES (?, ?, ?, ?, ?::json, ?::inet, ?, CURRENT_TIMESTAMP)";
             
-            auditRepository.save(logEntity);
+            jdbcTemplate.update(sql, 
+                UUID.randomUUID(),
+                "documents",
+                "INSERT",
+                document.getDocumentId().toString(),
+                String.format("{\"status\": \"%s\", \"file_hash\": \"%s\", \"tenant_id\": \"%s\"}", 
+                              document.getStatus(), document.getFileHash(), document.getTenantId()),
+                document.getClientIp(),
+                document.getCreatedBy()
+            );
         } catch (Exception e) {
-            log.error("Fallo crítico al guardar auditoría: {}", e.getMessage());
+            log.error("Fallo en auditoría: {}", e.getMessage());
         }
     }
 }
