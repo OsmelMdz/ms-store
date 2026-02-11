@@ -50,6 +50,7 @@ public class DocumentEntity {
     @Column(name = "created_by", length = 100)
     private String createdBy;
 
+    @JdbcTypeCode(SqlTypes.OTHER) 
     @Column(name = "client_ip")
     @org.hibernate.annotations.ColumnTransformer(write = "?::inet")
     private String clientIp;
