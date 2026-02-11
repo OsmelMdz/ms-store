@@ -32,7 +32,7 @@ public class DocumentAuditListener {
             
             auditRepository.save(logEntity);
         } catch (Exception e) {
-            log.error("Error al persistir log de auditoría: ", e);
+            log.error("Fallo crítico al guardar auditoría: {}", e.getMessage());
         }
     }
 }

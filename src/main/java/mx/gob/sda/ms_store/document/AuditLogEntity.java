@@ -49,5 +49,5 @@ public class AuditLogEntity {
 
     @CreatedDate
     @Column(name = "fecha_hora", updatable = false, columnDefinition = "TIMESTAMP WITH TIME ZONE")
-    private OffsetDateTime fechaHora;
+    private OffsetDateTime fechaHora; 
 }
