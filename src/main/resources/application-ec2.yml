@@ -42,7 +42,7 @@ minio:
   access-key: minioadmin
   secret-key: minioadmin
   bucket: expedientes-top-secret
-  part-size: 5242880
+  part-size: 5242880 
 
 server:
   port: 8443
@@ -54,4 +54,4 @@ server:
     key-alias: ms-store
     trust-store: classpath:certs/truststore.p12
     trust-store-password: dbPassword123
-    client-auth: need    
+    client-auth: want
