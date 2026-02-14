@@ -14,6 +14,7 @@ import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import java.util.Map;
 
 @Component
 public class TenantJwtFilter extends OncePerRequestFilter {
@@ -37,15 +38,21 @@ public class TenantJwtFilter extends OncePerRequestFilter {
             try {
                 String tenantId = jwtUtils.extractTenantId(token);
                 
-                var vaultResponse = vaultTemplate.read("secret/tenants/" + tenantId);
-                if (vaultResponse != null) {
-                    String pem = (String) vaultResponse.getData().get("publicKey");
-                    PublicKey pubKey = parsePublicKey(pem);
+                var vaultResponse = vaultTemplate.read("secret/data/tenants/" + tenantId);
+                
+                if (vaultResponse != null && vaultResponse.getData() != null) {
+                    Map<String, Object> responseData = (Map<String, Object>) vaultResponse.getData().get("data");
                     
-                    jwtUtils.validateToken(token, pubKey);
-                    
-                    UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(tenantId, null, null);
-                    SecurityContextHolder.getContext().setAuthentication(auth);
+                    if (responseData != null) {
+                        String pem = (String) responseData.get("publicKey");
+                        PublicKey pubKey = parsePublicKey(pem);
+                        
+                        jwtUtils.validateToken(token, pubKey);
+                        
+                        UsernamePasswordAuthenticationToken auth = 
+                            new UsernamePasswordAuthenticationToken(tenantId, null, null);
+                        SecurityContextHolder.getContext().setAuthentication(auth);
+                    }
                 }
             } catch (Exception e) {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
@@ -56,7 +63,10 @@ public class TenantJwtFilter extends OncePerRequestFilter {
     }
 
     private PublicKey parsePublicKey(String pem) throws Exception {
-        String clean = pem.replace("-----BEGIN PUBLIC KEY-----", "").replace("-----END PUBLIC KEY-----", "").replaceAll("\\s", "");
-        return KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(clean)));
+        String clean = pem.replace("-----BEGIN PUBLIC KEY-----", "")
+                          .replace("-----END PUBLIC KEY-----", "")
+                          .replaceAll("\\s", "");
+        return KeyFactory.getInstance("RSA")
+                         .generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(clean)));
     }
 }

@@ -7,6 +7,7 @@ import java.security.PublicKey;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -33,14 +34,16 @@ public class TenantRegistrationService {
         if (!isValid) {
             throw new RuntimeException("Firma inválida. El registro ha sido rechazado por seguridad.");
         }
-
-        String vaultPath = "secret/tenants/" + tenantId;
-        Map<String, String> dataToSave = Map.of(
-            "publicKey", publicKeyPem,
-            "status", "ACTIVE"
-        );
+        String vaultPath = "secret/data/tenants/" + tenantId;
         
-        vaultTemplate.write(vaultPath, dataToSave);
+        Map<String, Object> payload = new HashMap<>();
+        Map<String, String> dataToSave = new HashMap<>();
+        dataToSave.put("publicKey", publicKeyPem);
+        dataToSave.put("status", "ACTIVE");
+        
+        payload.put("data", dataToSave);
+        
+        vaultTemplate.write(vaultPath, payload);
 
         return "BT-" + UUID.randomUUID().toString();
     }
