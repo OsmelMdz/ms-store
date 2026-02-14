@@ -25,7 +25,7 @@ public class JwtUtils {
         try {
             String[] parts = token.split("\\.");
             if (parts.length < 2) {
-                throw new IllegalArgumentException("El token no tiene un formato JWT válido.");
+                throw new IllegalArgumentException("Formato JWT inválido.");
             }
             
             byte[] decodedBytes = Base64.getUrlDecoder().decode(parts[1]);
@@ -36,10 +36,10 @@ public class JwtUtils {
             if (node.has("sub")) {
                 return node.get("sub").asText();
             } else {
-                throw new RuntimeException("El token no contiene el campo 'sub' (Tenant ID).");
+                throw new RuntimeException("El token no contiene 'sub'.");
             }
         } catch (Exception e) {
-            throw new RuntimeException("Error al procesar el token: " + e.getMessage());
+            throw new RuntimeException("Error decodificando payload: " + e.getMessage());
         }
     }
 }

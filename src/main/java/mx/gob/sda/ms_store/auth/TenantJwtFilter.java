@@ -41,10 +41,11 @@ public class TenantJwtFilter extends OncePerRequestFilter {
                 var vaultResponse = vaultTemplate.read("secret/data/tenants/" + tenantId);
                 
                 if (vaultResponse != null && vaultResponse.getData() != null) {
-                    Map<String, Object> responseData = (Map<String, Object>) vaultResponse.getData().get("data");
+                    Map<String, Object> dataWrapper = vaultResponse.getData();
+                    Map<String, Object> actualSecrets = (Map<String, Object>) dataWrapper.get("data");
                     
-                    if (responseData != null) {
-                        String pem = (String) responseData.get("publicKey");
+                    if (actualSecrets != null && actualSecrets.containsKey("publicKey")) {
+                        String pem = (String) actualSecrets.get("publicKey");
                         PublicKey pubKey = parsePublicKey(pem);
                         
                         jwtUtils.validateToken(token, pubKey);
@@ -52,9 +53,19 @@ public class TenantJwtFilter extends OncePerRequestFilter {
                         UsernamePasswordAuthenticationToken auth = 
                             new UsernamePasswordAuthenticationToken(tenantId, null, null);
                         SecurityContextHolder.getContext().setAuthentication(auth);
+                    } else {
+                        System.err.println("ERROR: No se encontró 'publicKey' dentro del secreto en Vault");
+                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                        return;
                     }
+                } else {
+                    System.err.println("ERROR: No existe el tenant '" + tenantId + "' en Vault");
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    return;
                 }
             } catch (Exception e) {
+                System.err.println("ERROR DE VALIDACIÓN: " + e.getMessage());
+                e.printStackTrace();
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 return;
             }
