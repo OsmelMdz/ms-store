@@ -18,9 +18,11 @@ public interface DocumentRepository extends JpaRepository<DocumentEntity, UUID> 
     @Query(value = "SELECT EXISTS(SELECT 1 FROM catalogos_mirror.departments WHERE department_id = :deptId AND tenant_id = :tenantId)", nativeQuery = true)
     boolean validateDepartmentInTenant(@Param("deptId") UUID deptId, @Param("tenantId") UUID tenantId);
 
+    @Modifying(clearAutomatically = true)
+    @Transactional
     @Query(value = "SELECT " +
            "set_config('app.current_tenant', NULLIF(:tenantId, ''), true), " +
            "set_config('app.current_department', NULLIF(:deptId, ''), true)", 
            nativeQuery = true)
-    Object setSessionContext(@Param("tenantId") String tenantId, @Param("deptId") String deptId);
+    void setSessionContext(@Param("tenantId") String tenantId, @Param("deptId") String deptId);
 }

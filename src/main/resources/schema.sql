@@ -1,51 +1,64 @@
--- 1. Crear esquema
+-- 1. Preparación de Entorno
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE SCHEMA IF NOT EXISTS catalogos_mirror;
 CREATE SCHEMA IF NOT EXISTS operational;
 
--- 2. Crear tabla de documentos con soporte para Aislamiento y Rotación
-CREATE TABLE IF NOT EXISTS operational.documents (
-    -- Usamos UUID como PK para mayor flexibilidad que el Hash
-    document_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    
-    -- Aislamiento Multitenant y Departamental
-    tenant_id UUID NOT NULL,
-    department_id UUID NOT NULL,
-    
-    -- Metadatos del archivo
-    file_hash VARCHAR(64) NOT NULL,
-    file_size_bytes BIGINT NOT NULL,
-    content_type VARCHAR(100),
-    
-    -- Referencia a MinIO
-    s3_object_key VARCHAR(255) NOT NULL,
-    
-    -- CAMPOS CRÍTICOS: Envelope Encryption y Rotación de Vault
-    dek_wrapped_value TEXT NOT NULL,         -- El DEK cifrado por Vault (incluye prefijo de versión)
-    initialization_vector TEXT NOT NULL,    -- IV usado para el cifrado AES local
-    kek_version_id VARCHAR(10),             -- Auditoría de la versión de la llave de Vault
-    
-    -- Trazabilidad y Estado
-    status VARCHAR(20) NOT NULL DEFAULT 'RECEIVED',
-    created_by VARCHAR(100),
-    ip_address VARCHAR(45),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Unicidad: Un mismo archivo no debería repetirse en el mismo departamento
-    CONSTRAINT unique_file_dept UNIQUE (file_hash, tenant_id, department_id)
+-- 2. Estructura de Catálogos
+CREATE TABLE IF NOT EXISTS catalogos_mirror.tenants (
+    tenant_id uuid PRIMARY KEY,
+    name character varying(255) NOT NULL,
+    status character varying(20) DEFAULT 'ACTIVE' 
+        CHECK (status IN ('ACTIVE', 'SUSPENDED', 'LOCKED')),
+    created_at timestamp DEFAULT now()
 );
 
--- 3. Índices para el Aislamiento (Cruciales para RLS)
-CREATE INDEX IF NOT EXISTS idx_docs_tenant_dept ON operational.documents(tenant_id, department_id);
-CREATE INDEX IF NOT EXISTS idx_docs_hash ON operational.documents(file_hash);
+CREATE TABLE IF NOT EXISTS catalogos_mirror.departments (
+    department_id uuid PRIMARY KEY,
+    tenant_id uuid NOT NULL REFERENCES catalogos_mirror.tenants(tenant_id),
+    name character varying(255) NOT NULL,
+    code character varying(50),
+    active boolean DEFAULT true,
+    CONSTRAINT uq_dept_tenant UNIQUE (tenant_id, department_id)
+);
 
--- 4. Llaves Foráneas (Garantizan que el Tenant y Dept existan en catálogos)
-ALTER TABLE operational.documents 
-ADD CONSTRAINT fk_docs_tenant FOREIGN KEY (tenant_id) 
-REFERENCES catalogos_mirror.tenants(tenant_id);
+-- 3. Tabla de Documentos
+CREATE TABLE IF NOT EXISTS operational.documents (
+    document_id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id uuid NOT NULL REFERENCES catalogos_mirror.tenants(tenant_id),
+    department_id uuid,
+    file_hash character varying(64) NOT NULL,
+    file_size_bytes bigint NOT NULL,
+    content_type character varying(100),
+    s3_object_key character varying(255) NOT NULL,
+    dek_wrapped_value TEXT NOT NULL, 
+    initialization_vector TEXT NOT NULL,
+    kek_version_id VARCHAR(10),
+    status character varying(20) NOT NULL 
+        CHECK (status IN ('PENDING_STORAGE', 'RECEIVED', 'PROCESSED', 'ERROR')),
+    metadata jsonb,
+    client_ip inet,
+    created_by character varying(100),
+    created_at timestamp with time zone DEFAULT now(),
+    
+    CONSTRAINT fk_doc_hierarchy FOREIGN KEY (tenant_id, department_id) 
+        REFERENCES catalogos_mirror.departments(tenant_id, department_id)
+);
 
-ALTER TABLE operational.documents 
-ADD CONSTRAINT fk_docs_dept FOREIGN KEY (department_id) 
-REFERENCES catalogos_mirror.departments(department_id);
+-- 4. Índices Críticos para Rendimiento y RLS
+CREATE INDEX IF NOT EXISTS idx_docs_dept_filter ON operational.documents(tenant_id, department_id);
+CREATE INDEX IF NOT EXISTS idx_docs_tenant_rls ON operational.documents(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_docs_timeline ON operational.documents(tenant_id, created_at DESC);
 
--- 5. Comentarios de seguridad
-COMMENT ON COLUMN operational.documents.dek_wrapped_value IS 'DEK cifrado por Vault Transit. Soporta rotación mediante prefijo vault:vX:';
-COMMENT ON COLUMN operational.documents.department_id IS 'Nivel secundario de aislamiento para documentos del mismo tenant';
+-- 5. Tabla de Auditoría
+CREATE TABLE IF NOT EXISTS operational.audit_logs (
+    audit_id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    table_name character varying(50),
+    operation character varying(20),
+    row_id character varying(255),
+    old_data jsonb,
+    new_data jsonb,
+    changed_by_user character varying(100),
+    user_alias_nic character varying(100),
+    client_ip inet,
+    fecha_hora timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);

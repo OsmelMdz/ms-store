@@ -1,68 +1,65 @@
 package mx.gob.sda.ms_store.auth;
 
+import lombok.RequiredArgsConstructor;
+import mx.gob.sda.ms_store.document.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.vault.core.VaultTemplate;
-import java.security.KeyFactory;
-import java.security.PublicKey;
-import java.security.Signature;
-import java.security.spec.X509EncodedKeySpec;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+
+import java.util.*;
 
 @Service
+@RequiredArgsConstructor
 public class TenantRegistrationService {
 
     private final VaultTemplate vaultTemplate;
+    private final TenantRepository tenantRepository;
+    private final DepartmentRepository departmentRepository;
+    private final JwtUtils jwtUtils;
 
-    public TenantRegistrationService(VaultTemplate vaultTemplate) {
-        this.vaultTemplate = vaultTemplate;
-    }
-
-    public String registerNewTenant(Map<String, String> body) throws Exception {
-        String tenantId = body.get("tenantId");
-        String publicKeyPem = body.get("publicKey");
-        String signatureStr = body.get("signature");
-
-        if (tenantId == null || publicKeyPem == null || signatureStr == null) {
-            throw new IllegalArgumentException("Faltan parámetros requeridos: tenantId, publicKey o signature");
+    @Transactional
+    public Map<String, Object> registerNewTenant(Map<String, Object> body) throws Exception {
+        String tenantIdStr = (String) body.get("tenantId");
+        String publicKeyPem = (String) body.get("publicKey");
+        String signatureStr = (String) body.get("signature");
+        String name = (String) body.getOrDefault("name", "ORGANISMO_NUEVO");
+        Object deptoObj = body.get("departments");
+        List<String> deptoNames = (deptoObj instanceof List) ? (List<String>) deptoObj : List.of("GENERAL");
+        if (!jwtUtils.verifyExternalSignature(tenantIdStr, signatureStr, publicKeyPem)) {
+            throw new SecurityException("Firma inválida: Intento de registro no autorizado.");
         }
 
-        boolean isValid = verifySignature(tenantId, signatureStr, publicKeyPem);
-        
-        if (!isValid) {
-            throw new RuntimeException("Firma inválida. El registro ha sido rechazado por seguridad.");
+        UUID tId = UUID.fromString(tenantIdStr);
+        TenantEntity tenant = tenantRepository.findById(tId).orElseGet(() -> {
+            TenantEntity nt = new TenantEntity();
+            nt.setTenantId(tId);
+            nt.setName(name);
+            nt.setStatus("ACTIVE");
+            return tenantRepository.save(nt);
+        });
+        List<Map<String, String>> createdDeptos = new ArrayList<>();
+        for (String dName : deptoNames) {
+            DepartmentEntity depto = new DepartmentEntity();
+            depto.setDepartmentId(UUID.randomUUID());
+            depto.setTenantId(tId);
+            depto.setName(dName);
+            depto.setActive(true);
+            departmentRepository.save(depto);
+            createdDeptos.add(Map.of("name", dName, "id", depto.getDepartmentId().toString()));
         }
-        String vaultPath = "secret/data/tenants/" + tenantId;
-        
-        Map<String, Object> payload = new HashMap<>();
-        Map<String, String> dataToSave = new HashMap<>();
-        dataToSave.put("publicKey", publicKeyPem);
-        dataToSave.put("status", "ACTIVE");
-        
-        payload.put("data", dataToSave);
-        
-        vaultTemplate.write(vaultPath, payload);
+        String bt = "BT-" + UUID.randomUUID();
+        Map<String, Object> vaultPayload = Map.of(
+            "publicKey", publicKeyPem,
+            "bootstrapToken", bt,
+            "rcsi", body.getOrDefault("rcsi", "OU-SDA")
+        );
+        vaultTemplate.write("secret/data/tenants/" + tenantIdStr, Map.of("data", vaultPayload));
 
-        return "BT-" + UUID.randomUUID().toString();
-    }
-
-    private boolean verifySignature(String data, String signatureStr, String publicKeyPem) throws Exception {
-        String cleanKey = publicKeyPem
-                .replace("-----BEGIN PUBLIC KEY-----", "")
-                .replace("-----END PUBLIC KEY-----", "")
-                .replaceAll("\\s", "");
-
-        byte[] keyBytes = Base64.getDecoder().decode(cleanKey);
-        X509EncodedKeySpec spec = new X509EncodedKeySpec(keyBytes);
-        KeyFactory kf = KeyFactory.getInstance("RSA");
-        PublicKey publicKey = kf.generatePublic(spec);
-
-        Signature sig = Signature.getInstance("SHA256withRSA");
-        sig.initVerify(publicKey);
-        sig.update(data.getBytes());
-        
-        return sig.verify(Base64.getDecoder().decode(signatureStr));
+        return Map.of(
+            "tenantId", tenantIdStr,
+            "bootstrap_token", bt,
+            "departments", createdDeptos,
+            "status", "SUCCESS"
+        );
     }
 }

@@ -1,83 +1,58 @@
 package mx.gob.sda.ms_store.auth;
 
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import mx.gob.sda.ms_store.document.DocumentRepository;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
-import org.springframework.vault.core.VaultTemplate;
 import org.springframework.web.filter.OncePerRequestFilter;
+
 import java.io.IOException;
-import java.security.KeyFactory;
 import java.security.PublicKey;
-import java.security.spec.X509EncodedKeySpec;
-import java.util.Base64;
-import java.util.Map;
+import java.security.cert.X509Certificate;
+import java.util.Collections;
 
 @Component
+@RequiredArgsConstructor
 public class TenantJwtFilter extends OncePerRequestFilter {
 
-    private final VaultTemplate vaultTemplate;
     private final JwtUtils jwtUtils;
-
-    public TenantJwtFilter(VaultTemplate vaultTemplate, JwtUtils jwtUtils) {
-        this.vaultTemplate = vaultTemplate;
-        this.jwtUtils = jwtUtils;
-    }
+    private final DocumentRepository documentRepository;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-
-        String header = request.getHeader("Authorization");
-
-        if (header != null && header.startsWith("Bearer ")) {
-            String token = header.substring(7);
+        X509Certificate[] certs = (X509Certificate[]) request.getAttribute("jakarta.servlet.request.X509Certificate");
+        String authHeader = request.getHeader("Authorization");
+        if (certs != null && certs.length > 0 && authHeader != null && authHeader.startsWith("Bearer ")) {
             try {
-                String tenantId = jwtUtils.extractTenantId(token);
+                String token = authHeader.substring(7);
+                PublicKey clientPublicKey = certs[0].getPublicKey(); 
+                Claims claims = jwtUtils.validateToken(token, clientPublicKey);
                 
-                var vaultResponse = vaultTemplate.read("secret/data/tenants/" + tenantId);
-                
-                if (vaultResponse != null && vaultResponse.getData() != null) {
-                    Map<String, Object> dataWrapper = vaultResponse.getData();
-                    Map<String, Object> actualSecrets = (Map<String, Object>) dataWrapper.get("data");
-                    
-                    if (actualSecrets != null && actualSecrets.containsKey("publicKey")) {
-                        String pem = (String) actualSecrets.get("publicKey");
-                        PublicKey pubKey = parsePublicKey(pem);
-                        
-                        jwtUtils.validateToken(token, pubKey);
-                        
-                        UsernamePasswordAuthenticationToken auth = 
-                            new UsernamePasswordAuthenticationToken(tenantId, null, null);
-                        SecurityContextHolder.getContext().setAuthentication(auth);
-                    } else {
-                        System.err.println("ERROR: No se encontró 'publicKey' dentro del secreto en Vault");
-                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        return;
-                    }
-                } else {
-                    System.err.println("ERROR: No existe el tenant '" + tenantId + "' en Vault");
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    return;
-                }
+                String tenantId = claims.getSubject();
+                String actor = claims.get("actor", String.class);
+                String deptId = request.getHeader("X-Department-ID");
+                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                        actor, null, Collections.emptyList());
+                SecurityContextHolder.getContext().setAuthentication(auth);
+                documentRepository.setSessionContext(tenantId, deptId != null ? deptId : "");
+
             } catch (Exception e) {
-                System.err.println("ERROR DE VALIDACIÓN: " + e.getMessage());
-                e.printStackTrace();
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                SecurityContextHolder.clearContext();
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Firma de JWT no coincide con Certificado mTLS");
                 return;
             }
+        } else if (authHeader != null) {
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Se requiere certificado mTLS para validar la sesion");
+            return;
         }
-        filterChain.doFilter(request, response);
-    }
 
-    private PublicKey parsePublicKey(String pem) throws Exception {
-        String clean = pem.replace("-----BEGIN PUBLIC KEY-----", "")
-                          .replace("-----END PUBLIC KEY-----", "")
-                          .replaceAll("\\s", "");
-        return KeyFactory.getInstance("RSA")
-                         .generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(clean)));
+        filterChain.doFilter(request, response);
     }
 }

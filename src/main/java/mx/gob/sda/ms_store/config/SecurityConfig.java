@@ -1,6 +1,6 @@
 package mx.gob.sda.ms_store.config;
 
-import mx.gob.sda.ms_store.auth.TenantJwtFilter; // Asegúrate de importar tu filtro
+import mx.gob.sda.ms_store.auth.TenantJwtFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -25,12 +25,11 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
+            .x509(x509 -> x509.subjectPrincipalRegex("CN=(.*?)(?:,|$)"))
             .addFilterBefore(tenantFilter, UsernamePasswordAuthenticationFilter.class)
-            .x509(x509 -> x509
-                .subjectPrincipalRegex("CN=(.*?)(?:,|$)") 
-            )
+            
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/v1/auth/**").permitAll() 
+                .requestMatchers("/v1/auth/tenant/register", "/v1/auth/public-key").permitAll() 
                 .anyRequest().authenticated()
             );
             
@@ -39,9 +38,7 @@ public class SecurityConfig {
 
     @Bean
     public UserDetailsService userDetailsService() {
-        return username -> {
-            return new User(username, "", 
+        return username -> new User(username, "", 
                 AuthorityUtils.createAuthorityList("ROLE_USER"));
-        };
     }
 }

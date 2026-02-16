@@ -10,28 +10,35 @@ import java.util.UUID;
 @Slf4j
 @Component
 public class DocumentAuditListener {
+    private static AuditLogRepository auditRepository;
 
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    public void setAuditRepository(AuditLogRepository repository) {
+        DocumentAuditListener.auditRepository = repository;
+    }
 
     @PostPersist
     public void onPostPersist(DocumentEntity document) {
         try {
-            String sql = "INSERT INTO operational.audit_logs (audit_id, table_name, operation, row_id, new_data, client_ip, changed_by_user, fecha_hora) " +
-                         "VALUES (?, ?, ?, ?, ?::json, ?::inet, ?, CURRENT_TIMESTAMP)";
-            
-            jdbcTemplate.update(sql, 
-                UUID.randomUUID(),
-                "documents",
-                "INSERT",
-                document.getDocumentId().toString(),
-                String.format("{\"status\": \"%s\", \"file_hash\": \"%s\", \"tenant_id\": \"%s\"}", 
-                              document.getStatus(), document.getFileHash(), document.getTenantId()),
-                document.getClientIp(),
-                document.getCreatedBy()
-            );
+            AuditLogEntity logEntry = AuditLogEntity.builder()
+                .tableName("documents")
+                .operation("INSERT")
+                .rowId(document.getDocumentId().toString())
+                .newData(String.format(
+                    "{\"status\": \"%s\", \"file_hash\": \"%s\", \"tenant_id\": \"%s\", \"content_type\": \"%s\"}",
+                    document.getStatus(), 
+                    document.getFileHash(), 
+                    document.getTenantId(),
+                    document.getContentType()
+                ))
+                .changedByUser(document.getCreatedBy())
+                .clientIp(document.getClientIp())
+                .build();
+
+            auditRepository.save(logEntry);
+            log.info("Auditoría registrada para el documento: {}", document.getDocumentId());
         } catch (Exception e) {
-            log.error("Fallo en auditoría: {}", e.getMessage());
+            log.error("Fallo crítico al persistir auditoría: {}", e.getMessage());
         }
     }
 }

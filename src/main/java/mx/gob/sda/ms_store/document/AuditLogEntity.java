@@ -17,36 +17,33 @@ public class AuditLogEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "audit_id", updatable = false, nullable = false)
+    @Column(name = "audit_id")
     private UUID auditId;
 
-    @Column(name = "table_name", nullable = false)
+    @Column(name = "table_name")
     private String tableName;
 
-    @Column(name = "operation", nullable = false)
+    @Column(name = "operation")
     private String operation;
 
     @Column(name = "row_id")
     private String rowId;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "old_data")
-    private String oldData;
-
-    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "new_data")
     private String newData;
 
-    @CreatedBy
     @Column(name = "changed_by_user")
     private String changedByUser;
 
-    @JdbcTypeCode(SqlTypes.OTHER)
-    @Column(name = "client_ip")
-    @org.hibernate.annotations.ColumnTransformer(write = "?::inet")
+    @Column(name = "client_ip", columnDefinition = "inet")
     private String clientIp;
 
-    @CreatedDate
-    @Column(name = "fecha_hora", updatable = false, columnDefinition = "TIMESTAMP WITH TIME ZONE")
-    private OffsetDateTime fechaHora; 
+    @Column(name = "fecha_hora", updatable = false)
+    private OffsetDateTime fechaHora;
+
+    @PrePersist
+    public void prePersist() {
+        this.fechaHora = OffsetDateTime.now();
+    }
 }

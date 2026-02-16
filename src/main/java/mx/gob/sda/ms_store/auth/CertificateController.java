@@ -48,13 +48,13 @@ public class CertificateController {
                 .body(sw.toString());
     }
 
-    @PostMapping("/tenant/register")
-    public ResponseEntity<?> registerTenant(@RequestBody Map<String, String> requestBody) {
-        try {
-            String bootstrapToken = tenantService.registerNewTenant(requestBody);
-            return ResponseEntity.ok(Map.of("bootstrap_token", bootstrapToken));
-        } catch (Exception e) {
-            return ResponseEntity.status(400).body(Map.of("error", e.getMessage()));
-        }
+@PostMapping("/tenant/register")
+public ResponseEntity<?> registerTenant(@RequestBody Map<String, Object> requestBody) {
+    try {
+        Map<String, Object> response = tenantService.registerNewTenant(requestBody);
+        return ResponseEntity.ok(response);
+    } catch (Exception e) {
+        return ResponseEntity.status(400).body(Map.of("error", e.getMessage()));
     }
+}
 }

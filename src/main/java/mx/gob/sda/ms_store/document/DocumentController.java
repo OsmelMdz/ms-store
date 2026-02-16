@@ -6,6 +6,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
@@ -28,18 +29,19 @@ public class DocumentController {
             @PathVariable("tenant_id") String tenantId,
             @RequestHeader("X-Department-ID") String departmentId,
             @RequestParam("file") MultipartFile file,
-            @RequestHeader(value = "X-User-ID", defaultValue = "SYSTEM-ADMIN") String userId,
             jakarta.servlet.http.HttpServletRequest request) {
 
         UUID.fromString(departmentId); 
         UUID.fromString(tenantId);
+
+        String userId = SecurityContextHolder.getContext().getAuthentication().getName();
 
         String xff = request.getHeader("X-Forwarded-For");
         String clientIp = (xff != null) ? xff.split(",")[0] : request.getRemoteAddr();
 
         if (file.isEmpty()) {
             return CompletableFuture.completedFuture(
-                ResponseEntity.badRequest().body(Map.of("error", "No se puede procesar un archivo vacío"))
+                ResponseEntity.badRequest().body(Map.of("error", "El archivo está vacío"))
             );
         }
 
@@ -51,26 +53,21 @@ public class DocumentController {
             );
         }
 
-        log.info("Iniciando proceso asíncrono para: {} | Department: {} | IP: {}", file.getOriginalFilename(), departmentId, clientIp);
+        log.info("Carga Segura iniciada por: {} | Organismo: {} | IP: {}", userId, tenantId, clientIp);
 
         return documentService.processUpload(file, tenantId, departmentId, userId, clientIp)
                 .<ResponseEntity<?>>thenApply(result -> ResponseEntity.status(HttpStatus.CREATED).body(result))
                 .exceptionally(e -> {
                     Throwable cause = (e.getCause() != null) ? e.getCause() : e;
-                    log.error("Fallo crítico en el proceso: {}", cause.getMessage());
+                    log.error("Fallo en pipeline de seguridad/almacenamiento: {}", cause.getMessage());
 
                     if (cause instanceof SecurityException) {
                         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                                .body(Map.of("error", "Acceso denegado: El departamento no pertenece al organismo."));
-                    }
-
-                    if (cause.getMessage().contains("Vault") || cause.getClass().getName().toLowerCase().contains("vault")) {
-                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                .body(Map.of("error", "Servicio de seguridad no disponible momentáneamente."));
+                                .body(Map.of("error", "Acceso denegado: Violación de aislamiento multitenant."));
                     }
 
                     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                .body(Map.of("error", "Error interno al procesar el archivo"));
+                            .body(Map.of("error", "Error interno: " + cause.getMessage()));
                 });
     }
 
@@ -78,7 +75,7 @@ public class DocumentController {
     public ResponseEntity<StreamingResponseBody> download(
             @PathVariable("tenant_id") String tenantId,
             @PathVariable("file_hash") String fileHash,
-            @RequestHeader(value = "X-Department-ID") String departmentId) {
+            @RequestHeader("X-Department-ID") String departmentId) {
     
         String cleanTenantId = (tenantId != null) ? tenantId.trim() : "";
         String cleanDeptId = (departmentId != null) ? departmentId.trim() : "";
@@ -86,10 +83,10 @@ public class DocumentController {
         UUID.fromString(cleanTenantId);
         UUID.fromString(cleanDeptId);
 
-        log.info("Petición de descarga - Tenant: {} | Dept: {} | Hash: {}", cleanTenantId, cleanDeptId, fileHash);
+        log.info("Descarga solicitada por mTLS - Hash: {}", fileHash);
 
         DocumentEntity doc = documentService.getMetadata(fileHash, cleanTenantId, cleanDeptId)
-                .orElseThrow(() -> new NoSuchElementException("Documento no encontrado o acceso denegado."));
+                .orElseThrow(() -> new NoSuchElementException("Documento no encontrado o sin privilegios de acceso."));
 
         StreamingResponseBody stream = documentService.downloadDocument(fileHash, cleanTenantId, cleanDeptId);
 

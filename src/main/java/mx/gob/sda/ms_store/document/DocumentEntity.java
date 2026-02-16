@@ -37,6 +37,15 @@ public class DocumentEntity {
     @Column(name = "s3_object_key", nullable = false, length = 255)
     private String s3ObjectKey;
 
+    @Column(name = "dek_wrapped_value", nullable = false, columnDefinition = "TEXT")
+    private String dekWrappedValue;
+
+    @Column(name = "initialization_vector", nullable = false, columnDefinition = "TEXT")
+    private String initializationVector;
+
+    @Column(name = "kek_version_id", length = 10)
+    private String kekVersionId;
+
     @Column(name = "status", nullable = false, length = 20)
     private String status;
 
@@ -51,9 +60,15 @@ public class DocumentEntity {
     private String createdBy;
 
     @Column(name = "client_ip", columnDefinition = "inet")
-    @JdbcTypeCode(SqlTypes.INET)
     private String clientIp;
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private OffsetDateTime createdAt;
+
+    @PrePersist
+    public void ensureId() {
+        if (this.documentId == null) {
+            this.documentId = UUID.randomUUID();
+        }
+    }
 }
