@@ -41,6 +41,12 @@ public class DocumentService {
         repository.setSessionContext(tenantId, (departmentId == null) ? "" : departmentId);
     }
 
+    @Transactional(readOnly = true)
+    public Optional<DocumentEntity> getMetadata(String fileHash, String tenantId, String departmentId) {
+        establecerContextoSeguro(tenantId, departmentId);
+        return repository.findByFileHash(fileHash);
+    }
+
     @Transactional
     public CompletableFuture<Map<String, Object>> processUpload(MultipartFile file, String tenantId, String departmentId, String userId, String clientIp) {
         return CompletableFuture.supplyAsync(() -> {
@@ -49,22 +55,26 @@ public class DocumentService {
                 
                 UUID tenantUuid = UUID.fromString(tenantId);
                 UUID deptUuid = UUID.fromString(departmentId);
+                
                 byte[] dek = new byte[32];
                 byte[] iv = new byte[16];
                 SecureRandom random = new SecureRandom();
                 random.nextBytes(dek);
                 random.nextBytes(iv);
+
                 String ciphertextDEK = vaultTemplate.opsForTransit()
                         .encrypt("sda-master-key", Base64.getEncoder().encodeToString(dek));
 
                 byte[] fileBytes = file.getBytes();
                 String fileHash = bytesToHex(MessageDigest.getInstance("SHA-256").digest(fileBytes));
                 UUID documentId = UUID.randomUUID();
+
                 String vaultPath = String.format(VAULT_KV_PATH, tenantId, documentId);
                 Map<String, String> secretData = new HashMap<>();
                 secretData.put("dek_wrapped", ciphertextDEK);
                 secretData.put("iv", Base64.getEncoder().encodeToString(iv));
                 vaultTemplate.write(vaultPath, Collections.singletonMap("data", secretData));
+
                 Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
                 cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(dek, "AES"), new IvParameterSpec(iv));
                 byte[] encryptedData = cipher.doFinal(fileBytes);
@@ -91,7 +101,7 @@ public class DocumentService {
                 doc.setInitializationVector(Base64.getEncoder().encodeToString(iv));
                 doc.setStatus("RECEIVED");
                 doc.setCreatedBy(userId);
-                doc.setIpAddress(clientIp);
+                doc.setClientIp(clientIp);
                 
                 repository.save(doc);
 

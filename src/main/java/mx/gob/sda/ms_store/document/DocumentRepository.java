@@ -21,8 +21,8 @@ public interface DocumentRepository extends JpaRepository<DocumentEntity, UUID> 
     @Modifying(clearAutomatically = true)
     @Transactional
     @Query(value = "SELECT " +
-           "set_config('app.current_tenant', NULLIF(:tenantId, ''), true), " +
-           "set_config('app.current_department', NULLIF(:deptId, ''), true)", 
-           nativeQuery = true)
+            "set_config('app.current_tenant', NULLIF(:tenantId, ''), true), " +
+            "set_config('app.current_department', NULLIF(:deptId, ''), true)", 
+            nativeQuery = true)
     void setSessionContext(@Param("tenantId") String tenantId, @Param("deptId") String deptId);
 }
